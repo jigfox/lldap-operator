@@ -251,8 +251,48 @@ of lldap v0.6.3.
 Layout: `api/v1alpha1` (types), `internal/lldap` (client behind an interface,
 `fake` for tests), `internal/controller` (reconcilers), `config/` (kustomize).
 
-Releases: push a tag `vX.Y.Z`; the workflow builds and pushes the multi-arch
-image and attaches `install.yaml` to the GitHub release.
+Releases are automatic, see below.
+
+## Development and releases
+
+Changes reach `main` only through pull requests, merged with **rebase merge**
+(every commit of the PR lands on `main` as it is). A PR needs green checks
+(Lint, Unit and envtest, Integration (real lldap), Conventional commits) and an
+up-to-date branch.
+
+Every commit must be a [Conventional Commit](https://www.conventionalcommits.org)
+(`type(scope): description`, `!` or a `BREAKING CHANGE:` footer for breaking
+changes); the check fails the PR otherwise.
+
+On every push to `main` the Release workflow looks at the commits since the
+last `v*` tag and, if they warrant it, tags, builds and publishes a release
+(multi-arch image `ghcr.io/jigfox/lldap-operator:<version>` and `:latest`,
+`install.yaml` and generated release notes on the GitHub release). If nothing
+is releasable the workflow ends without a release.
+
+| Commit type | Release |
+| --- | --- |
+| `feat` | minor |
+| `fix`, `perf` | patch |
+| breaking (`!` / `BREAKING CHANGE:`) | minor while the version is 0.x, major from 1.0 on |
+| `docs`, `test`, `chore`, `ci`, `build`, `refactor`, `style` | none |
+
+Renovate uses `fix(deps)` for Go modules and the Dockerfile (they release) and
+`chore(deps)` for GitHub Actions and mise tools.
+
+A PR from this repository (not a fork) with the label `prerelease` gets a
+pre-release `v<next version>-pr.<PR number>.<run number>` on every push to the
+branch: image tag and GitHub pre-release, never `:latest`. When the PR is
+closed its pre-releases and tags are deleted (the images stay).
+
+The same logic runs locally (git-cliff, configured in `cliff.toml`):
+
+```sh
+mise run release:next             # next version, empty if nothing is releasable (--or-patch: at least a patch)
+mise run release:notes -- 0.3.0   # release notes of the unreleased commits
+mise run commits:check            # all commits in origin/main..HEAD conventional? (optional base branch argument)
+mise run lint:workflows           # actionlint and zizmor
+```
 
 ## License
 

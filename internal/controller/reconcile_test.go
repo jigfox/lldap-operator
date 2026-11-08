@@ -136,7 +136,7 @@ func ready(t *testing.T, conds []metav1.Condition) *metav1.Condition {
 func expectCalls(t *testing.T, l *fakelldap.Client, want ...string) {
 	t.Helper()
 	got := l.Calls()
-	if !slices.Equal(got, want) && !(len(got) == 0 && len(want) == 0) {
+	if !slices.Equal(got, want) && (len(got) != 0 || len(want) != 0) {
 		t.Fatalf("lldap calls = %q, want %q", got, want)
 	}
 }
@@ -355,7 +355,7 @@ func TestUserAdoptKeepsUnmanagedMemberships(t *testing.T) {
 	if got.DisplayName != "Alice A" || got.FirstName != "Al" {
 		t.Fatalf("empty spec fields must not blank lldap values: %+v", got)
 	}
-	names := []string{}
+	names := make([]string, 0, len(got.Groups))
 	for _, g := range got.Groups {
 		names = append(names, g.DisplayName)
 	}

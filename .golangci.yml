@@ -52,6 +52,12 @@ linters:
           - dupl
           - lll
         path: internal/*
+      - linters:
+          - goconst
+        path: (.+)_test\.go
+      - linters:
+          - goconst
+        path: internal/lldap/http\.go
     paths:
       - third_party$
       - builtin$

@@ -103,8 +103,8 @@ func (r *LLDAPGroupReconciler) sync(ctx context.Context, s *shared, group *lldap
 		}
 	}
 
-	switch {
-	case existing == nil:
+	switch existing {
+	case nil:
 		var created lldap.Group
 		did, err := s.run(ctx, group, pending, "Create", fmt.Sprintf("create group %q", name), func() error {
 			var cerr error

@@ -126,7 +126,7 @@ func (c *Client) User(id string) *lldap.User {
 func (c *Client) GroupNames() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var names []string
+	names := make([]string, 0, len(c.groups))
 	for _, n := range c.groups {
 		names = append(names, n)
 	}

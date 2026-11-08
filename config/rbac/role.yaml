@@ -1,0 +1,35 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - lldap.jigfox.github.io
+  resources:
+  - lldapgroups
+  - lldapusers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - lldap.jigfox.github.io
+  resources:
+  - lldapgroups/finalizers
+  - lldapusers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - lldap.jigfox.github.io
+  resources:
+  - lldapgroups/status
+  - lldapusers/status
+  verbs:
+  - get
+  - patch
+  - update

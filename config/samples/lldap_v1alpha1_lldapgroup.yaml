@@ -1,0 +1,9 @@
+apiVersion: lldap.jigfox.github.io/v1alpha1
+kind: LLDAPGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: lldap-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: lldapgroup-sample
+spec:
+  # TODO(user): Add fields here

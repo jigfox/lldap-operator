@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- lldap_v1alpha1_lldapgroup.yaml
+- lldap_v1alpha1_lldapuser.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

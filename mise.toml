@@ -1,0 +1,4 @@
+[tools]
+go = "1.26.1"
+"aqua:golangci/golangci-lint" = "2.12.2"
+"aqua:kubernetes-sigs/kubebuilder" = "4.16.0"

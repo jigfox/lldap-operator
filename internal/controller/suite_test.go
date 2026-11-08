@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,7 +17,11 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	lldapv1alpha1 "github.com/jigfox/lldap-operator/api/v1alpha1"
+	fakelldap "github.com/jigfox/lldap-operator/internal/lldap/fake"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -29,6 +34,7 @@ var (
 	testEnv   *envtest.Environment
 	cfg       *rest.Config
 	k8sClient client.Client
+	fakeLLDAP *fakelldap.Client
 )
 
 func TestControllers(t *testing.T) {
@@ -67,6 +73,27 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	By("starting the manager with both reconcilers and a fake lldap")
+	fakeLLDAP = fakelldap.New()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:  scheme.Scheme,
+		Metrics: metricsserver.Options{BindAddress: "0"},
+	})
+	Expect(err).NotTo(HaveOccurred())
+	recorder := mgr.GetEventRecorder("lldap-operator-test")
+	Expect((&LLDAPGroupReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), LLDAP: fakeLLDAP, Recorder: recorder,
+		Interval: time.Minute,
+	}).SetupWithManager(mgr)).To(Succeed())
+	Expect((&LLDAPUserReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), LLDAP: fakeLLDAP, Recorder: recorder,
+		Interval: time.Minute, ServiceUser: "operator",
+	}).SetupWithManager(mgr)).To(Succeed())
+	go func() {
+		defer GinkgoRecover()
+		Expect(mgr.Start(ctx)).To(Succeed())
+	}()
 })
 
 var _ = AfterSuite(func() {

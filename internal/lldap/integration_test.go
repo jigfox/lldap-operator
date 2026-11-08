@@ -5,8 +5,10 @@ package lldap_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/jigfox/lldap-operator/internal/invite"
 	"github.com/jigfox/lldap-operator/internal/lldap"
 	"github.com/jigfox/lldap-operator/internal/lldap/lldaptest"
 )
@@ -95,5 +97,37 @@ func TestAgainstRealLLDAP(t *testing.T) {
 	bad := lldap.NewHTTPClient(srv.URL, srv.Username, "wrong", nil)
 	if _, err := bad.ListGroups(ctx); err == nil {
 		t.Fatal("login with a wrong password succeeded")
+	}
+}
+
+// TestInviteAgainstRealLLDAP lets lldap send its password-reset mail to a
+// throwaway SMTP server.
+func TestInviteAgainstRealLLDAP(t *testing.T) {
+	ctx := context.Background()
+	srv, mail := lldaptest.StartWithMail(ctx, t)
+	c := lldap.NewHTTPClient(srv.URL, srv.Username, srv.Password, nil)
+	if err := c.CreateUser(ctx, lldap.CreateUserInput{ID: "alice", Email: "alice@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+
+	inv := invite.NewLLDAP(srv.URL, nil)
+	if err := inv.Invite(ctx, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mail.Messages(t); !slices.Equal(got, []string{"alice@example.com"}) {
+		t.Fatalf("mails sent to %q", got)
+	}
+	// lldap answers 200 for unknown users and sends nothing.
+	if err := inv.Invite(ctx, "nobody"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mail.Messages(t); len(got) != 1 {
+		t.Fatalf("mails sent to %q", got)
+	}
+
+	// Without SMTP configured the endpoint does not exist.
+	plain := lldaptest.Start(ctx, t)
+	if err := invite.NewLLDAP(plain.URL, nil).Invite(ctx, "alice"); err == nil {
+		t.Fatal("invite succeeded against an lldap without password reset")
 	}
 }

@@ -1,8 +1,9 @@
 name: CI
 
+# Runs on pull requests only. main only receives rebase-merged PRs whose
+# required checks passed on an up-to-date branch (see README), so the same
+# commits are not tested again after the merge; release.yml takes over there.
 on:
-  push:
-    branches: [main]
   pull_request:
 
 permissions: {}
@@ -45,3 +46,20 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
       - run: mise run test-integration
+
+  commits:
+    name: Conventional commits
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      BASE: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # the PR's own commits, not the merge commit
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - run: mise run commits:check -- "$BASE"

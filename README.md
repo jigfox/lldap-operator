@@ -11,7 +11,8 @@ Git next to the rest of your cluster configuration.
   `LLDAPGroup` manages. Everything without a resource (built-in groups, `admin`,
   the operator's own account) is left alone.
 - No passwords are managed: users set their own (for example through your
-  identity provider's reset flow).
+  identity provider's reset flow). The operator can trigger that flow once for
+  every user it creates, see [Invitation mails](#invitation-mails).
 - A `--dry-run` mode shows what the operator would change without sending
   anything to lldap.
 
@@ -69,6 +70,7 @@ spec:
   firstName: Alice
   lastName: Example
   groups: [family]      # display names of groups
+  sendInvitation: true  # default; false: no invitation mail for this user
 ```
 
 ```console
@@ -97,7 +99,8 @@ lldapuser.lldap.jigfox.github.io/alice alice     True    false     1m
 | `spec.displayName`, `firstName`, `lastName` | Optional. Empty means "leave whatever lldap has" (so adopting never blanks a field; clearing a field must be done in lldap). |
 | `spec.groups` | Display names of the groups the user belongs to. |
 | `spec.deletionPolicy` | `Delete` (default) or `Orphan`. |
-| `status` | `userID`, `adopted`, `groups` (managed groups the user is in), `observedGeneration`, conditions. |
+| `spec.sendInvitation` | Default `true`: follow the operator's `--invite` mode. `false` suppresses the invitation mail for this user. |
+| `status` | `userID`, `adopted`, `groups` (managed groups the user is in), `invitationSentAt`, `observedGeneration`, conditions. |
 
 The defaults from `metadata.name` are applied by the operator, not by the API
 server, so `spec` in the cluster stays as you wrote it; `status.userID` and
@@ -141,6 +144,40 @@ lldap object are not detected; avoid it.
 **Conditions.** `Ready` (`True` when the lldap object matches the spec) with
 reasons `Reconciled`, `UnknownGroup`, `GroupPending`, `LLDAPError`, `Invalid`,
 `DryRunPending`; `status.observedGeneration` follows `metadata.generation`.
+Users also get `InvitationSent`, see below.
+
+## Invitation mails
+
+The operator never sets passwords. To let a new user set their first one, it
+can trigger a password-reset mail right after it **creates** the lldap user.
+Start the manager with `--invite`:
+
+| `--invite` | Behaviour |
+| --- | --- |
+| `none` (default) | No mails. |
+| `lldap` | lldap's own reset flow (`POST <LLDAP_URL>/auth/reset/step1/<user>`). Needs SMTP and `enable_password_reset` in lldap (`LLDAP_SMTP_OPTIONS__*`), otherwise lldap answers 404 and the invitation fails. The link in the mail points at lldap's UI (`http_url`). |
+| `authelia` | Authelia's "Reset password?" flow (`POST /api/reset-password/identity/start`), which needs no login. Requires `--authelia-url`, the public URL of the portal (for example `https://sso.example.com`); the operator exits at startup without it. The mail is Authelia's reset-password template and links to the portal. Password reset must be enabled in Authelia (it is by default). Authelia answers 200 even for unknown users or users without an email address, so such an invitation is reported as sent although no mail left; only a failure to send is detected. Authelia's rate limit on this endpoint applies (429 is a failure and retried). |
+
+Rules:
+
+- Only a user the operator creates is invited, **never an adopted one**, and
+  only once: `status.invitationSentAt` is set before the mail is sent, so a
+  conflicting status update, a retry or a restart cannot cause a second mail.
+  The price: if the operator dies between recording and sending, or cannot
+  release the record after a failed send, that user gets no mail and must be
+  sent a reset by hand. A user created before `--invite` was switched on is
+  never invited either.
+- `spec.sendInvitation: false` suppresses it for one user.
+- The condition `InvitationSent` is `False` with reason `InvitationPending`
+  or `InvitationFailed` (message: the error), and `True` once sent. A failure
+  also emits a Warning Event and is retried with backoff; the user and its
+  groups are reconciled regardless.
+- With `--dry-run` nothing is sent; the Event `DryRun: would send invitation`
+  is emitted instead.
+
+Which one to use: `authelia` fits when users log in through Authelia, and the
+link leads to the portal they know; `lldap` needs no extra flag, but SMTP in
+lldap, and leaves users on lldap's UI, which they may not be able to reach.
 
 ## Dry run
 
@@ -165,6 +202,7 @@ kubectl get events -A --field-selector reason=DryRun
 | `LLDAP_URL`, `LLDAP_USERNAME`, `LLDAP_PASSWORD` | Required environment. |
 | `--dry-run` | See above. |
 | `--sync-period` | Drift check interval, default `10m`. |
+| `--invite`, `--authelia-url` | Invitation mails for created users: `none` (default), `lldap` or `authelia`. See [Invitation mails](#invitation-mails). |
 | `--leader-elect`, `--metrics-bind-address`, `--health-probe-bind-address`, ... | Standard kubebuilder flags. |
 
 ## Security notes
@@ -205,7 +243,8 @@ mise tasks                  # all tasks (also docker:build, docker:buildx, insta
 Makefile target they would add has to be mirrored as a mise task by hand.
 
 The integration tests default to `lldap/lldap:v0.6.2`; set `LLDAP_IMAGE` to try
-another tag. The GraphQL queries follow
+another tag. One of them runs lldap with SMTP against a throwaway
+[mailpit](https://mailpit.axllent.org) container to check the `lldap` invitation. The GraphQL queries follow
 [`schema.graphql`](https://github.com/lldap/lldap/blob/v0.6.3/schema.graphql)
 of lldap v0.6.3.
 

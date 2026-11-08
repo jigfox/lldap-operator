@@ -83,6 +83,14 @@ spec:
               lastName:
                 description: lastName of the user. Left untouched in lldap if empty.
                 type: string
+              sendInvitation:
+                default: true
+                description: |-
+                  sendInvitation controls the password-reset mail the operator triggers
+                  once when it creates this user (never when it adopts one). Unset or true
+                  follows the operator's --invite mode, false suppresses the mail for this
+                  user. Has no effect when the operator runs with --invite=none.
+                type: boolean
               username:
                 description: |-
                   username is the lldap user id. Defaults to metadata.name (applied by the
@@ -105,8 +113,9 @@ spec:
                   first reconciled this resource.
                 type: boolean
               conditions:
-                description: 'conditions: Ready, and DryRun while the operator runs
-                  with --dry-run.'
+                description: |-
+                  conditions: Ready, InvitationSent once an invitation is due, and DryRun
+                  while the operator runs with --dry-run.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -172,6 +181,12 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              invitationSentAt:
+                description: |-
+                  invitationSentAt is when the operator triggered the invitation mail. It is
+                  recorded before the mail is sent, so a user is never invited twice.
+                format: date-time
+                type: string
               observedGeneration:
                 description: observedGeneration is the generation the conditions were
                   computed for.

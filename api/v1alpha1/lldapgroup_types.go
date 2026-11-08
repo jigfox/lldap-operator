@@ -23,6 +23,9 @@ const (
 	ConditionReady = "Ready"
 	// ConditionDryRun is True while the operator runs with --dry-run.
 	ConditionDryRun = "DryRun"
+	// ConditionInvitationSent is set on users once an invitation mail is due:
+	// False while it is pending or failed, True once it was sent.
+	ConditionInvitationSent = "InvitationSent"
 
 	ReasonReconciled     = "Reconciled"
 	ReasonUnknownGroup   = "UnknownGroup"
@@ -31,6 +34,10 @@ const (
 	ReasonDryRun         = "DryRun"
 	ReasonDryRunPending  = "DryRunPending"
 	ReasonDeletionFailed = "DeletionFailed"
+
+	ReasonInvitationPending = "InvitationPending"
+	ReasonInvitationFailed  = "InvitationFailed"
+	ReasonInvitationSent    = "InvitationSent"
 )
 
 // LLDAPGroupSpec defines the desired state of LLDAPGroup.

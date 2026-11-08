@@ -11,3 +11,6 @@ spec:
   groups:
     - family
   deletionPolicy: Delete
+  # Triggers one password-reset mail when the operator creates the user
+  # (only with --invite=lldap|authelia, never for adopted users).
+  sendInvitation: true

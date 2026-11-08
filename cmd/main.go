@@ -22,6 +22,7 @@ import (
 
 	lldapv1alpha1 "github.com/jigfox/lldap-operator/api/v1alpha1"
 	"github.com/jigfox/lldap-operator/internal/controller"
+	"github.com/jigfox/lldap-operator/internal/invite"
 	"github.com/jigfox/lldap-operator/internal/lldap"
 	// +kubebuilder:scaffold:imports
 )
@@ -50,6 +51,7 @@ func main() {
 	var enableHTTP2 bool
 	var dryRun bool
 	var syncPeriod time.Duration
+	var inviteMode, autheliaURL string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -77,6 +79,11 @@ func main() {
 		"Compute, log and emit Events for every change, but send no mutation to lldap.")
 	flag.DurationVar(&syncPeriod, "sync-period", controller.DefaultInterval,
 		"How often each resource is re-checked to correct drift made in lldap.")
+	flag.StringVar(&inviteMode, "invite", invite.ModeNone,
+		"Who mails a password-reset link to users this operator creates (never to adopted ones): "+
+			"none, lldap (lldap's reset flow, needs SMTP in lldap) or authelia (needs --authelia-url).")
+	flag.StringVar(&autheliaURL, "authelia-url", "",
+		"Public URL of the Authelia portal, e.g. https://sso.example.com. Required with --invite=authelia.")
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -156,6 +163,11 @@ func main() {
 		os.Exit(1)
 	}
 	lldapClient := lldap.NewHTTPClient(lldapURL, lldapUser, lldapPassword, nil)
+	inviter, err := invite.New(inviteMode, lldapURL, autheliaURL, nil)
+	if err != nil {
+		setupLog.Error(err, "Invalid invitation settings")
+		os.Exit(1)
+	}
 	if dryRun {
 		setupLog.Info("Running in dry-run mode: no changes are sent to lldap")
 	}
@@ -203,6 +215,7 @@ func main() {
 		DryRun:      dryRun,
 		Interval:    syncPeriod,
 		ServiceUser: lldapUser,
+		Inviter:     inviter,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "lldapuser")
 		os.Exit(1)

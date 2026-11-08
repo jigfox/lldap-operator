@@ -44,6 +44,14 @@ type LLDAPUserSpec struct {
 	// +kubebuilder:default=Delete
 	// +optional
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
+
+	// sendInvitation controls the password-reset mail the operator triggers
+	// once when it creates this user (never when it adopts one). Unset or true
+	// follows the operator's --invite mode, false suppresses the mail for this
+	// user. Has no effect when the operator runs with --invite=none.
+	// +kubebuilder:default=true
+	// +optional
+	SendInvitation *bool `json:"sendInvitation,omitempty"`
 }
 
 // LLDAPUserStatus defines the observed state of LLDAPUser.
@@ -62,11 +70,17 @@ type LLDAPUserStatus struct {
 	// +optional
 	Groups []string `json:"groups,omitempty"`
 
+	// invitationSentAt is when the operator triggered the invitation mail. It is
+	// recorded before the mail is sent, so a user is never invited twice.
+	// +optional
+	InvitationSentAt *metav1.Time `json:"invitationSentAt,omitempty"`
+
 	// observedGeneration is the generation the conditions were computed for.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// conditions: Ready, and DryRun while the operator runs with --dry-run.
+	// conditions: Ready, InvitationSent once an invitation is due, and DryRun
+	// while the operator runs with --dry-run.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

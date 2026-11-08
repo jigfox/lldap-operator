@@ -8,7 +8,10 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
@@ -20,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	lldapv1alpha1 "github.com/jigfox/lldap-operator/api/v1alpha1"
+	"github.com/jigfox/lldap-operator/internal/invite"
 	"github.com/jigfox/lldap-operator/internal/lldap"
 )
 
@@ -37,6 +41,9 @@ type LLDAPUserReconciler struct {
 	Interval time.Duration
 	// ServiceUser is the lldap user the operator logs in as; it is never managed.
 	ServiceUser string
+	// Inviter triggers the password-reset mail for users this operator creates;
+	// nil disables invitations (--invite=none).
+	Inviter invite.Inviter
 }
 
 // +kubebuilder:rbac:groups=lldap.jigfox.github.io,resources=lldapusers,verbs=get;list;watch;update;patch
@@ -78,6 +85,12 @@ func (r *LLDAPUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, perr
+	}
+	// The mail never blocks the sync above: user and groups have converged and
+	// their status is stored before it is attempted. A failure is retried with
+	// the controller's backoff.
+	if ierr := r.invite(ctx, s, &user); ierr != nil && err == nil {
+		return ctrl.Result{}, ierr
 	}
 	switch {
 	case err != nil:
@@ -131,10 +144,19 @@ func (r *LLDAPUserReconciler) sync(ctx context.Context, s *shared, user *lldapv1
 		if err != nil {
 			return syncResult{}, err
 		}
-		if did {
+		switch {
+		case did:
+			// Recorded before anything else can fail, so the next reconcile sees a
+			// user this operator created instead of one to adopt.
+			user.Status.UserID = name
+			r.requestInvitation(user)
 			if lu, err = r.LLDAP.GetUser(ctx, name); err != nil {
 				return syncResult{}, err
 			}
+		case s.DryRun && r.invitationWanted(user):
+			logf.FromContext(ctx).Info("dry-run: would send invitation", "user", name)
+			s.Recorder.Eventf(user, nil, corev1.EventTypeNormal, reasonDryRun, "Invite",
+				"DryRun: would send invitation to user %q", name)
 		}
 	} else {
 		if user.Status.UserID == "" {
@@ -150,6 +172,94 @@ func (r *LLDAPUserReconciler) sync(ctx context.Context, s *shared, user *lldapv1
 	}
 
 	return r.convergeMemberships(ctx, s, user, name, lu, pending)
+}
+
+// invitationWanted is true if the operator should invite this user once it
+// has created it.
+func (r *LLDAPUserReconciler) invitationWanted(user *lldapv1alpha1.LLDAPUser) bool {
+	return r.Inviter != nil && (user.Spec.SendInvitation == nil || *user.Spec.SendInvitation)
+}
+
+// requestInvitation marks a user that was just created as due for an
+// invitation. Only creation does this, never adoption, and the marker is a
+// condition so that a retry after a failed mail still knows the user is ours
+// to invite.
+func (r *LLDAPUserReconciler) requestInvitation(user *lldapv1alpha1.LLDAPUser) {
+	if !r.invitationWanted(user) || user.Status.InvitationSentAt != nil {
+		return
+	}
+	meta.SetStatusCondition(&user.Status.Conditions, metav1.Condition{
+		Type: lldapv1alpha1.ConditionInvitationSent, Status: metav1.ConditionFalse,
+		Reason: lldapv1alpha1.ReasonInvitationPending, Message: "invitation not sent yet",
+		ObservedGeneration: user.Generation,
+	})
+}
+
+// invite sends the invitation of a user that requestInvitation marked.
+//
+// A mail cannot be taken back, a missing one can be re-sent by hand, so the
+// order is chosen to never send twice: creation is stored first (by the
+// caller), then invitationSentAt is claimed with an optimistic-lock patch (a
+// conflict means another writer got in: nothing is sent, the retry decides
+// again), and only then is the mail sent. If sending fails the claim is
+// released and the user is retried; if the process dies between claim and
+// send, or the claim cannot be released, the user is left uninvited rather
+// than invited twice.
+func (r *LLDAPUserReconciler) invite(ctx context.Context, s *shared, user *lldapv1alpha1.LLDAPUser) error {
+	c := meta.FindStatusCondition(user.Status.Conditions, lldapv1alpha1.ConditionInvitationSent)
+	if c == nil || c.Status == metav1.ConditionTrue || user.Status.InvitationSentAt != nil ||
+		user.Status.Adopted || user.Status.UserID == "" {
+		return nil
+	}
+	if s.DryRun {
+		return nil
+	}
+	if !r.invitationWanted(user) {
+		// Switched off after the user was created: drop the pending marker.
+		orig := user.DeepCopy()
+		meta.RemoveStatusCondition(&user.Status.Conditions, lldapv1alpha1.ConditionInvitationSent)
+		return ignoreGone(r.Status().Patch(ctx, user, client.MergeFrom(orig)))
+	}
+
+	name := user.Status.UserID
+	orig := user.DeepCopy()
+	now := metav1.Now()
+	user.Status.InvitationSentAt = &now
+	if err := r.Status().Patch(ctx, user, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})); err != nil {
+		return ignoreGone(err)
+	}
+
+	orig = user.DeepCopy()
+	if err := r.Inviter.Invite(ctx, name); err != nil {
+		user.Status.InvitationSentAt = nil
+		meta.SetStatusCondition(&user.Status.Conditions, metav1.Condition{
+			Type: lldapv1alpha1.ConditionInvitationSent, Status: metav1.ConditionFalse,
+			Reason: lldapv1alpha1.ReasonInvitationFailed, Message: err.Error(),
+			ObservedGeneration: user.Generation,
+		})
+		s.Recorder.Eventf(user, nil, corev1.EventTypeWarning, lldapv1alpha1.ReasonInvitationFailed, "Invite",
+			"Sending the invitation to user %q failed: %v", name, err)
+		if perr := r.Status().Patch(ctx, user, client.MergeFrom(orig)); perr != nil && !apierrors.IsNotFound(perr) {
+			return errors.Join(err, perr)
+		}
+		return err
+	}
+	logf.FromContext(ctx).Info("sent invitation", "user", name)
+	s.Recorder.Eventf(user, nil, corev1.EventTypeNormal, lldapv1alpha1.ReasonInvitationSent, "Invite",
+		"Sent invitation to user %q", name)
+	meta.SetStatusCondition(&user.Status.Conditions, metav1.Condition{
+		Type: lldapv1alpha1.ConditionInvitationSent, Status: metav1.ConditionTrue,
+		Reason: lldapv1alpha1.ReasonInvitationSent, Message: "invitation sent",
+		ObservedGeneration: user.Generation,
+	})
+	return ignoreGone(r.Status().Patch(ctx, user, client.MergeFrom(orig)))
+}
+
+func ignoreGone(err error) error {
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 func (r *LLDAPUserReconciler) convergeFields(ctx context.Context, s *shared, user *lldapv1alpha1.LLDAPUser,

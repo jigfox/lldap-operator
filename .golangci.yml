@@ -1,6 +1,8 @@
 version: "2"
 run:
   allow-parallel-runners: true
+  build-tags:
+    - integration
 linters:
   default: none
   enable:

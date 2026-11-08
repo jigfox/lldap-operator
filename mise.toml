@@ -135,3 +135,40 @@ kustomize build config/default | kubectl apply -f -
 [tasks.undeploy]
 description = "Remove the operator from the current cluster"
 run = "kustomize build config/default | kubectl delete --ignore-not-found -f -"
+
+# Releases: git-cliff reads the Conventional Commits since the last stable v*
+# tag (cliff.toml). The release workflows use the same tasks.
+
+[tasks."release:next"]
+description = "Next release version without the v (empty if nothing is releasable); --or-patch falls back to the next patch"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+latest=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -Ev -- '-' | head -n1 || true)
+next=$(git-cliff --bumped-version 2>/dev/null || true)
+if [ -z "$next" ] || [ "$next" = "$latest" ]; then
+  next=
+  if [ "${1:-}" = "--or-patch" ]; then
+    v=${latest#v}
+    next="v${v%.*}.$(( ${v##*.} + 1 ))"
+  fi
+fi
+echo "${next#v}"
+'''
+
+[tasks."release:notes"]
+description = "Release notes for the unreleased commits as version <version> (e.g. 0.3.0)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+git-cliff --unreleased --tag "v${1:?usage: release:notes <version>}" --strip header 2>/dev/null
+'''
+
+[tasks."commits:check"]
+description = "Fail if a commit in origin/<base>..HEAD is not a Conventional Commit (base defaults to main)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+git-cliff --config cliff-check.toml --output /dev/null "origin/${1:-main}..HEAD"
+echo "all commits are conventional"
+'''

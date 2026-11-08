@@ -1,0 +1,8 @@
+# Used by `mise run commits:check` only. Kept apart from cliff.toml because a
+# skipping commit parser there would hide unconventional commits from
+# require_conventional.
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+require_conventional = true

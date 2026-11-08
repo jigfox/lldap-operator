@@ -146,7 +146,7 @@ func TestGetUser(t *testing.T) {
 
 func TestGetUserNotFound(t *testing.T) {
 	s, c := newServer(t)
-	s.reply = `{"data":null,"errors":[{"message":"Entity not found: `+"`"+`bob`+"`"+`"}]}`
+	s.reply = `{"data":null,"errors":[{"message":"Entity not found: ` + "`" + `bob` + "`" + `"}]}`
 	_, err := c.GetUser(context.Background(), "bob")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)

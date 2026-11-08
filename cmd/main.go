@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -21,6 +22,7 @@ import (
 
 	lldapv1alpha1 "github.com/jigfox/lldap-operator/api/v1alpha1"
 	"github.com/jigfox/lldap-operator/internal/controller"
+	"github.com/jigfox/lldap-operator/internal/lldap"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -46,6 +48,8 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var dryRun bool
+	var syncPeriod time.Duration
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -69,6 +73,10 @@ func main() {
 	opts := zap.Options{
 		Development: true,
 	}
+	flag.BoolVar(&dryRun, "dry-run", false,
+		"Compute, log and emit Events for every change, but send no mutation to lldap.")
+	flag.DurationVar(&syncPeriod, "sync-period", controller.DefaultInterval,
+		"How often each resource is re-checked to correct drift made in lldap.")
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -142,6 +150,16 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	lldapURL, lldapUser, lldapPassword := os.Getenv("LLDAP_URL"), os.Getenv("LLDAP_USERNAME"), os.Getenv("LLDAP_PASSWORD")
+	if lldapURL == "" || lldapUser == "" || lldapPassword == "" {
+		setupLog.Error(nil, "LLDAP_URL, LLDAP_USERNAME and LLDAP_PASSWORD must be set")
+		os.Exit(1)
+	}
+	lldapClient := lldap.NewHTTPClient(lldapURL, lldapUser, lldapPassword, nil)
+	if dryRun {
+		setupLog.Info("Running in dry-run mode: no changes are sent to lldap")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -167,15 +185,24 @@ func main() {
 	}
 
 	if err := (&controller.LLDAPGroupReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		LLDAP:    lldapClient,
+		Recorder: mgr.GetEventRecorder("lldap-operator"),
+		DryRun:   dryRun,
+		Interval: syncPeriod,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "lldapgroup")
 		os.Exit(1)
 	}
 	if err := (&controller.LLDAPUserReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		LLDAP:       lldapClient,
+		Recorder:    mgr.GetEventRecorder("lldap-operator"),
+		DryRun:      dryRun,
+		Interval:    syncPeriod,
+		ServiceUser: lldapUser,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "lldapuser")
 		os.Exit(1)

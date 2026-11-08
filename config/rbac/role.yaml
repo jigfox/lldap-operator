@@ -5,13 +5,19 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - lldap.jigfox.github.io
   resources:
   - lldapgroups
   - lldapusers
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch

@@ -22,7 +22,7 @@ func TestReconcileAgainstRealLLDAP(t *testing.T) {
 	srv := lldaptest.Start(ctx, t)
 	real := lldap.NewHTTPClient(srv.URL, srv.Username, srv.Password, nil)
 
-	// Pre-existing state, as in a homelab being adopted.
+	// Pre-existing state, as when adopting an existing directory.
 	g, err := real.CreateGroup(ctx, "Family")
 	if err != nil {
 		t.Fatal(err)

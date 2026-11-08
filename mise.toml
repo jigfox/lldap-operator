@@ -2,3 +2,125 @@
 go = "1.26.1"
 "aqua:golangci/golangci-lint" = "2.12.2"
 "aqua:kubernetes-sigs/kubebuilder" = "4.16.0"
+"go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "0.22.0"
+"go:sigs.k8s.io/kustomize/kustomize/v5" = "5.8.1"
+"go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "0.25.0"
+
+[env]
+_.path = ["{{config_root}}/bin"]
+
+# Common tasks. Targets that `kubebuilder create api` would add to a Makefile
+# have to be mirrored here as tasks.
+
+[tasks.manifests]
+description = "Generate CRDs and ClusterRole"
+run = 'controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases'
+
+[tasks.generate]
+description = "Generate DeepCopy methods"
+run = 'controller-gen object paths="./..."'
+
+[tasks.fmt]
+description = "go fmt"
+run = "go fmt ./..."
+
+[tasks.vet]
+description = "go vet"
+run = "go vet ./..."
+
+[tasks.test]
+description = "Unit tests and envtest"
+depends = ["manifests", "generate", "fmt", "vet"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+# envtest Kubernetes minor = k8s.io/api minor from go.mod
+k8s=$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
+export KUBEBUILDER_ASSETS=$(setup-envtest use "$k8s" --bin-dir "$PWD/bin" -p path)
+go test ./... -coverprofile cover.out
+'''
+
+[tasks.test-integration]
+description = "Integration tests against a real lldap container (needs Docker)"
+run = "go test -tags integration -count=1 ./internal/..."
+
+[tasks."lint:build"]
+description = "Build golangci-lint with the logcheck plugin (.custom-gcl.yml)"
+sources = [".custom-gcl.yml"]
+outputs = ["bin/golangci-lint-custom"]
+run = "golangci-lint custom --destination bin --name golangci-lint-custom"
+
+[tasks.lint]
+description = "golangci-lint (with plugins)"
+depends = ["lint:build"]
+run = ["golangci-lint-custom config verify", "golangci-lint-custom run"]
+
+[tasks."lint:fix"]
+description = "golangci-lint --fix"
+depends = ["lint:build"]
+run = "golangci-lint-custom run --fix"
+
+[tasks.build]
+description = "Build bin/manager"
+depends = ["manifests", "generate", "fmt", "vet"]
+run = "go build -o bin/manager cmd/main.go"
+
+[tasks.run]
+description = "Run the controller from the host"
+depends = ["manifests", "generate", "fmt", "vet"]
+run = "go run ./cmd/main.go"
+
+[tasks."docker:build"]
+description = "Build the image (IMG, BASE_IMAGE env)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+docker build ${BASE_IMAGE:+--build-arg BASE_IMAGE=$BASE_IMAGE} -t "${IMG:-controller:latest}" .
+'''
+
+[tasks."docker:buildx"]
+description = "Build and push a multi-arch image (IMG, PLATFORMS env)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+docker buildx build --push --platform "${PLATFORMS:-linux/amd64,linux/arm64}" \
+  ${BASE_IMAGE:+--build-arg BASE_IMAGE=$BASE_IMAGE} -t "${IMG:?set IMG}" .
+'''
+
+[tasks.build-installer]
+description = "dist/install.yaml for IMG"
+depends = ["manifests", "generate"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p dist
+cp config/manager/kustomization.yaml /tmp/lldap-operator-kustomization.bak
+trap 'cp /tmp/lldap-operator-kustomization.bak config/manager/kustomization.yaml' EXIT
+(cd config/manager && kustomize edit set image controller="${IMG:?set IMG}")
+kustomize build config/default > dist/install.yaml
+'''
+
+[tasks.install]
+description = "Install the CRDs into the current cluster"
+depends = ["manifests"]
+run = "kustomize build config/crd | kubectl apply -f -"
+
+[tasks.uninstall]
+description = "Remove the CRDs from the current cluster"
+run = "kustomize build config/crd | kubectl delete --ignore-not-found -f -"
+
+[tasks.deploy]
+description = "Deploy the operator (IMG) to the current cluster"
+depends = ["manifests"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+cp config/manager/kustomization.yaml /tmp/lldap-operator-kustomization.bak
+trap 'cp /tmp/lldap-operator-kustomization.bak config/manager/kustomization.yaml' EXIT
+(cd config/manager && kustomize edit set image controller="${IMG:?set IMG}")
+kustomize build config/default | kubectl apply -f -
+'''
+
+[tasks.undeploy]
+description = "Remove the operator from the current cluster"
+run = "kustomize build config/default | kubectl delete --ignore-not-found -f -"

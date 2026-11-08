@@ -186,15 +186,23 @@ kubectl get events -A --field-selector reason=DryRun
 
 ## Development
 
-Tools are pinned in `mise.toml` (Go, golangci-lint, kubebuilder); `mise install`.
+Everything runs through [mise](https://mise.jdx.dev): `mise.toml` pins Go,
+golangci-lint, kubebuilder, controller-gen, kustomize and setup-envtest, and
+defines the tasks (there is no Makefile). `mise install` once, then:
 
 ```sh
-make test               # unit tests + envtest (downloads kube-apiserver and etcd)
-make test-integration   # against a real lldap container, needs Docker
-make lint
-make manifests generate # after changing api/ or RBAC markers
-make build-installer IMG=ghcr.io/jigfox/lldap-operator:dev   # dist/install.yaml
+mise run test               # generate, manifests, fmt, vet, then unit tests + envtest
+mise run test-integration   # against a real lldap container, needs Docker
+mise run lint               # golangci-lint with the logcheck plugin; lint:fix to autofix
+mise run manifests          # CRDs and RBAC, after changing api/ or RBAC markers
+mise run generate           # DeepCopy methods
+mise run build              # bin/manager
+IMG=ghcr.io/jigfox/lldap-operator:dev mise run build-installer   # dist/install.yaml
+mise tasks                  # all tasks (also docker:build, docker:buildx, install, deploy, ...)
 ```
+
+`kubebuilder` scaffolding commands (`create api`, ...) still work, but any
+Makefile target they would add has to be mirrored as a mise task by hand.
 
 The integration tests default to `lldap/lldap:v0.6.2`; set `LLDAP_IMAGE` to try
 another tag. The GraphQL queries follow

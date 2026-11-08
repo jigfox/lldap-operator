@@ -5,6 +5,7 @@ go = "1.26.1"
 "aqua:orhun/git-cliff" = "2.14.2"
 "aqua:rhysd/actionlint" = "1.7.12"
 "aqua:zizmorcore/zizmor" = "1.32.0"
+"aqua:koalaman/shellcheck" = "0.11.0"
 "go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "0.22.0"
 "go:sigs.k8s.io/kustomize/kustomize/v5" = "5.8.1"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "0.25.0"
@@ -172,3 +173,7 @@ set -euo pipefail
 git-cliff --config cliff-check.toml --output /dev/null "origin/${1:-main}..HEAD"
 echo "all commits are conventional"
 '''
+
+[tasks."lint:workflows"]
+description = "actionlint and zizmor on .github/workflows"
+run = ["actionlint", "zizmor --no-progress --min-severity medium .github"]

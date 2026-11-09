@@ -263,8 +263,11 @@ up-to-date branch.
 Every commit must be a [Conventional Commit](https://www.conventionalcommits.org)
 (`type(scope): description`, `!` or a `BREAKING CHANGE:` footer for breaking
 changes) with one of the types `feat`, `fix`, `perf`, `docs`, `test`,
-`chore`, `ci`, `build`, `refactor`, `style` or `revert`; the check fails the
-PR otherwise.
+`chore`, `ci`, `build`, `refactor`, `style` or `revert`, a header of at most
+89 and a description of at most 72 characters. The rules are in
+[`.conform.yaml`](.conform.yaml) and enforced by
+[conform](https://github.com/siderolabs/conform); the check fails the PR
+otherwise.
 
 On every push to `main` the Release workflow looks at the commits since the
 last `v*` tag and, if they warrant it, tags, builds and publishes a release
@@ -288,16 +291,16 @@ branch: image tag and GitHub pre-release, never `:latest`. When the PR is
 closed its pre-releases and tags are deleted (the images stay).
 
 `mise install` also installs git hooks with lefthook (`lefthook.yml`): every
-commit message is checked on commit and every commit since `origin/main` on
-push, with the same rules as CI.
+commit message is checked with conform on commit and every commit since
+`origin/main` on push, with the same rules as CI.
 
-The same logic runs locally (git-cliff, configured in `cliff.toml`):
+The same logic runs locally (release versions by git-cliff, configured in
+`cliff.toml`; commit rules by conform):
 
 ```sh
 mise run release:next             # next version, empty if nothing is releasable (--or-patch: at least a patch)
 mise run release:notes -- 0.3.0   # release notes of the unreleased commits
-mise run commits:check            # all commits in origin/main..HEAD conventional? (optional base branch argument)
-mise run commits:check-msg <file> # one commit message (lefthook commit-msg hook)
+mise run commits:check            # all commits in origin/main..HEAD allowed by conform? (optional base branch argument)
 mise run lint:workflows           # actionlint and zizmor
 ```
 

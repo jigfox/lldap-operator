@@ -1,10 +1,12 @@
 name: CI
 
-# Runs on pull requests only. main only receives rebase-merged PRs whose
-# required checks passed on an up-to-date branch (see README), so the same
-# commits are not tested again after the merge; release.yml takes over there.
+# The required checks of every PR. It also runs on main after each merge:
+# that keeps a fresh mise tool cache on main, which PR branches restore
+# instead of downloading from GitHub again (and failing when it returns 504).
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions: {}
 
@@ -49,6 +51,8 @@ jobs:
 
   commits:
     name: Conventional commits
+    # checks the PR's commits against its base; on main they were checked already
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
